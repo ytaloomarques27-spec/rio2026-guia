@@ -1,9 +1,20 @@
 {
   "name": "Rio 2026 — Nosso Guia de Viagens",
   "short_name": "Rio 2026",
-  "start_url": "./?app=51&v=51",
+  "start_url": "./?app=51.1&v=51.1",
   "display": "standalone",
   "background_color": "#f4efe5",
   "theme_color": "#0d2f2a",
-  "icons": [{"src":"icons/icon-192.png","sizes":"192x192","type":"image/png"},{"src":"icons/icon-512.png","sizes":"512x512","type":"image/png"}]
+  "icons": [
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
 }

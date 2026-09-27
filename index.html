@@ -695,7 +695,7 @@ header.editorial-cover .cover-content{align-items:stretch!important}
 
 <section id="pesquisa">
 <div class="hero research-v24">
-  <div class="eyebrow">V51 FINAL · SYNC · FIREBASE</div>
+  <div class="eyebrow">V51.1 FINAL · SYNC · FIREBASE</div>
   <h2 class="section-title">🔎 Pesquisar e montar</h2>
   <p>Pesquise o destino por blocos. O app cria consultas contextualizadas, abre fontes online e permite importar um pacote estruturado para transformar pesquisa em conteúdo da viagem.</p>
   <div class="research-hero">
@@ -792,7 +792,7 @@ header.editorial-cover .cover-content{align-items:stretch!important}
  </div>
 </div>
 <div class="modal" id="attractionModal" aria-hidden="true"><div class="modal-box" role="dialog" aria-modal="true"><div class="gallery-wrap"><img id="modalImg" class="gallery-main" alt="Imagem da atração" onerror="this.style.display='none'"><div id="galleryNav" class="gallery-nav"></div><div class="gallery-credit">📷 Fotos de referência via Wikimedia Commons • toque na foto ou nas miniaturas para avançar</div></div><div class="modal-body"><div class="modal-head"><div><div class="small" id="modalTag"></div><h2 id="modalTitle" style="margin:4px 0"></h2></div><button class="close" id="modalClose" aria-label="Fechar">×</button></div><p id="modalDesc"></p><div class="info-grid"><div class="info-box"><b>🎟️ Taxas</b><span id="modalFee"></span></div><div class="info-box"><b>🎒 Levar</b><span id="modalBring"></span></div><div class="info-box"><b>👟 Preparação</b><span id="modalPrep"></span></div><div class="info-box"><b>⏱️ Quanto tempo</b><span id="modalTime"></span></div></div><div id="modalTickets" class="ticket-panel"></div><div class="tip"><b>💡 Dica rápida</b><br><span id="modalTip"></span></div><div id="modalLogistics" class="logistics"></div><div id="modalWeather" class="weather-card"></div><div class="modal-actions"><a class="btn" id="modalMap" target="_blank">📍 Como chegar</a><button class="btn alt" id="modalClose2" type="button">Voltar ao roteiro</button></div></div></div></div>
-<footer>RIO • 06–15 OUTUBRO 2026 • Nosso guia de viagem • V51 FINAL · SYNC<br>Transporte público como primeira escolha; Uber somente quando realmente necessário.</footer>
+<footer>RIO • 06–15 OUTUBRO 2026 • Nosso guia de viagem • V51.1 FINAL · SYNC<br>Transporte público como primeira escolha; Uber somente quando realmente necessário.</footer>
 
 <script>
 const DEFAULT_DAYS = [["06/10","TERÇA","Chegada + Santa Teresa + Jardim Botânico",[["08:35","Chegada ao Santos Dumont."],["09:15–09:45","Uber até Botafogo. Deixar as malas na hospedagem."],["10:00–12:30","Santa Teresa — Parque das Ruínas + Largo dos Guimarães + trecho da rota da Tati; Escadaria Selarón se o tempo permitir."],["12:30–13:45","Almoço em Santa Teresa."],["13:45–14:10","Uber Santa Teresa → Jardim Botânico."],["14:15–17:00","Jardim Botânico — tarde reservada para aproveitar o jardim com calma."],["17:00–18:00","Uber Jardim Botânico → Botafogo + descanso."],["20:00+","Noite livre — jantar ou outra programação escolhida no dia. Festival do Rio fica apenas como alternativa."]]],
@@ -1503,7 +1503,7 @@ document.getElementById('shareBtn')?.addEventListener('click', async()=>{ if(nav
 
 <script id="v50-pwa-stable">
 (async()=>{
-  const APP_VERSION='51';
+  const APP_VERSION='51.1';
   try{
     if('serviceWorker' in navigator){
       const reg=await navigator.serviceWorker.register('./sw.js?v='+APP_VERSION,{scope:'./',updateViaCache:'none'});
@@ -1569,6 +1569,62 @@ document.getElementById('shareBtn')?.addEventListener('click', async()=>{ if(nav
   }
   function schedule(){ setTimeout(boot,0); setTimeout(boot,350); setTimeout(boot,900); }
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',schedule,{once:true}); else schedule();
+})();
+</script>
+
+<script id="v51-navigation-hardening">
+(function(){
+  function go(tab){
+    var target=document.getElementById(tab);
+    if(!target)return;
+    document.querySelectorAll('main section').forEach(function(sec){
+      sec.classList.toggle('active',sec.id===tab);
+    });
+    document.querySelectorAll('#nav [data-tab]').forEach(function(btn){
+      btn.classList.toggle('active',btn.getAttribute('data-tab')===tab);
+    });
+    document.querySelectorAll('#appBottomNav [data-target]').forEach(function(btn){
+      btn.classList.toggle('active',btn.getAttribute('data-target')===tab);
+    });
+    if(tab==='clima' && typeof renderWeatherPage==='function'){
+      try{setTimeout(renderWeatherPage,0);}catch(e){}
+    }
+    try{window.scrollTo({top:0,behavior:'smooth'});}catch(e){window.scrollTo(0,0);}
+  }
+  window.__rio51_go=go;
+
+  document.addEventListener('click',function(e){
+    var el=e.target && e.target.closest ? e.target.closest('#appBottomNav button, #nav button[data-tab], #moreSheet [data-more]') : null;
+    if(!el)return;
+    var tab=el.getAttribute('data-target') || el.getAttribute('data-tab') || el.getAttribute('data-more');
+    if(tab==='more'){
+      var more=document.getElementById('moreSheet');
+      if(more){more.classList.add('open');more.setAttribute('aria-hidden','false');}
+      e.preventDefault();
+      return;
+    }
+    if(tab){
+      var more=document.getElementById('moreSheet');
+      if(more){more.classList.remove('open');more.setAttribute('aria-hidden','true');}
+      e.preventDefault();
+      go(tab);
+    }
+  },true);
+
+  // Make the five fixed buttons work even if an earlier initialization stopped with an error.
+  setTimeout(function(){
+    document.querySelectorAll('#appBottomNav [data-target]').forEach(function(btn){
+      btn.onclick=function(e){
+        var tab=btn.getAttribute('data-target');
+        if(tab==='more'){
+          var more=document.getElementById('moreSheet');
+          if(more){more.classList.add('open');more.setAttribute('aria-hidden','false');}
+          return;
+        }
+        go(tab);
+      };
+    });
+  },0);
 })();
 </script>
 </body></html>
