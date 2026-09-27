@@ -12,7 +12,7 @@
 <meta name="apple-mobile-web-app-title" content="Rio 2026">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<link rel="manifest" href="manifest.json?v=51">
+<link rel="manifest" href="manifest.json?v=51.2">
 <meta name="application-name" content="Rio 2026 • Nosso Guia">
 <meta name="apple-mobile-web-app-title" content="Rio 2026">
 <!-- V51: base funcional V39 preservada + PWA seguro + topo compatível com app instalado -->
@@ -695,7 +695,7 @@ header.editorial-cover .cover-content{align-items:stretch!important}
 
 <section id="pesquisa">
 <div class="hero research-v24">
-  <div class="eyebrow">V51.1 FINAL · SYNC · FIREBASE</div>
+  <div class="eyebrow">V51.2 FINAL · SYNC · FIREBASE</div>
   <h2 class="section-title">🔎 Pesquisar e montar</h2>
   <p>Pesquise o destino por blocos. O app cria consultas contextualizadas, abre fontes online e permite importar um pacote estruturado para transformar pesquisa em conteúdo da viagem.</p>
   <div class="research-hero">
@@ -792,7 +792,7 @@ header.editorial-cover .cover-content{align-items:stretch!important}
  </div>
 </div>
 <div class="modal" id="attractionModal" aria-hidden="true"><div class="modal-box" role="dialog" aria-modal="true"><div class="gallery-wrap"><img id="modalImg" class="gallery-main" alt="Imagem da atração" onerror="this.style.display='none'"><div id="galleryNav" class="gallery-nav"></div><div class="gallery-credit">📷 Fotos de referência via Wikimedia Commons • toque na foto ou nas miniaturas para avançar</div></div><div class="modal-body"><div class="modal-head"><div><div class="small" id="modalTag"></div><h2 id="modalTitle" style="margin:4px 0"></h2></div><button class="close" id="modalClose" aria-label="Fechar">×</button></div><p id="modalDesc"></p><div class="info-grid"><div class="info-box"><b>🎟️ Taxas</b><span id="modalFee"></span></div><div class="info-box"><b>🎒 Levar</b><span id="modalBring"></span></div><div class="info-box"><b>👟 Preparação</b><span id="modalPrep"></span></div><div class="info-box"><b>⏱️ Quanto tempo</b><span id="modalTime"></span></div></div><div id="modalTickets" class="ticket-panel"></div><div class="tip"><b>💡 Dica rápida</b><br><span id="modalTip"></span></div><div id="modalLogistics" class="logistics"></div><div id="modalWeather" class="weather-card"></div><div class="modal-actions"><a class="btn" id="modalMap" target="_blank">📍 Como chegar</a><button class="btn alt" id="modalClose2" type="button">Voltar ao roteiro</button></div></div></div></div>
-<footer>RIO • 06–15 OUTUBRO 2026 • Nosso guia de viagem • V51.1 FINAL · SYNC<br>Transporte público como primeira escolha; Uber somente quando realmente necessário.</footer>
+<footer>RIO • 06–15 OUTUBRO 2026 • Nosso guia de viagem • V51.2 FINAL · SYNC<br>Transporte público como primeira escolha; Uber somente quando realmente necessário.</footer>
 
 <script>
 const DEFAULT_DAYS = [["06/10","TERÇA","Chegada + Santa Teresa + Jardim Botânico",[["08:35","Chegada ao Santos Dumont."],["09:15–09:45","Uber até Botafogo. Deixar as malas na hospedagem."],["10:00–12:30","Santa Teresa — Parque das Ruínas + Largo dos Guimarães + trecho da rota da Tati; Escadaria Selarón se o tempo permitir."],["12:30–13:45","Almoço em Santa Teresa."],["13:45–14:10","Uber Santa Teresa → Jardim Botânico."],["14:15–17:00","Jardim Botânico — tarde reservada para aproveitar o jardim com calma."],["17:00–18:00","Uber Jardim Botânico → Botafogo + descanso."],["20:00+","Noite livre — jantar ou outra programação escolhida no dia. Festival do Rio fica apenas como alternativa."]]],
@@ -1437,6 +1437,28 @@ async function syncPush(){if(!ensureFirebase())return;const user=firebaseAuth.cu
 function scheduleSync(){if(applyingRemote||!getSyncConfig())return;clearTimeout(syncTimer);syncTimer=setTimeout(()=>syncPush().catch(e=>setSyncStatus('⚠️ Não foi possível enviar: '+e.message,'err')),700)}
 async function syncPull(){if(!ensureFirebase())return;const user=firebaseAuth.currentUser;if(!user){setSyncStatus('🔐 Entre na conta para sincronizar.','warn');return false}const snap=await firebaseDb.collection('tripSync').doc(user.uid).get();if(snap.exists){const state=snap.data();if(state.payload){lastRemotePayload=state.payload;lastPushedPayload='';applySyncState(state);localStorage.setItem(SYNC_META_KEY,JSON.stringify({updatedAt:state.clientUpdatedAt||new Date().toISOString(),payload:state.payload}));}setSyncStatus('✓ Dados da nuvem carregados.','ok');return true}else{lastRemotePayload='';await syncPush();return true}}
 function renderRoute(){const box=document.getElementById('days');if(!box)return;box.innerHTML='';const weatherBox=document.getElementById('weatherDays');if(weatherBox)weatherBox.innerHTML='';const center=activeTrip.coords||rioCenter;days.forEach((d,i)=>{const [date,weekday,title,items]=d;const iso=parseDateBR(date);const el=document.createElement('article');el.className='card day';el.innerHTML=`<div class="day-head"><div><h2>${escapeHtml(date)} • ${escapeHtml(weekday)}</h2><b>${escapeHtml(title)}</b><div class="activity-progress" id="progress-${i}">✓ 0/${items.length} feitas</div></div><span class="badge">${i+1}/${days.length}</span></div><div class="timeline">${items.map((x,j)=>{const activityText=x[1]||'';const key=findAttraction(activityText);const safe=key?key.replace(/'/g,"\\'"):'';const display=key?`<span class="attraction-link" onclick="openAttraction('${safe}','${iso}')">${escapeHtml(activityText)}</span>`:escapeHtml(activityText);const done=localStorage.getItem(activityDoneKey(date,x[0],activityText))==='1';return `<div class="item"><div class="time">${escapeHtml(x[0]||'')}</div><label class="activity-check ${done?'done':''}"><input type="checkbox" data-activity-day="${i}" data-activity-index="${j}" ${done?'checked':''}><span class="activity-text">${display}</span></label></div>`;}).join('')}</div><div id="weather-day-${iso}"></div><div class="btns"><a class="btn" target="_blank" href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(title+' Rio de Janeiro')}">📍 Ver região</a><button class="btn outline" type="button" onclick="openDayEditor(${i})">✏️ Ajustar este dia</button></div>`;box.appendChild(el);const wc=document.getElementById('weather-day-'+iso);if(wc)loadWeather(wc,iso,...center,activeTrip.destination||'Destino');});bindActivityChecks();updateRouteCompletion();}
+function refreshAfterSync(){
+  // Re-render all data-driven areas after Firebase applies a remote/local state.
+  // This must exist before initCloudSync/startRealtime can call it.
+  try{if(typeof renderTripHeader==='function')renderTripHeader();}catch(e){}
+  try{if(typeof renderRoute==='function')renderRoute();}catch(e){}
+  try{if(typeof renderRestaurants==='function')renderRestaurants();}catch(e){}
+  try{if(typeof renderEditor==='function')renderEditor();}catch(e){}
+  try{if(typeof renderMyDayPicker==='function')renderMyDayPicker();}catch(e){}
+  try{if(typeof renderMyDay==='function')renderMyDay();}catch(e){}
+  try{if(typeof renderChecklist==='function')renderChecklist();}catch(e){}
+  try{if(typeof renderWallet==='function')renderWallet();}catch(e){}
+  try{if(typeof renderExpenses==='function')renderExpenses();}catch(e){}
+  try{if(typeof renderLogistics==='function')renderLogistics('');}catch(e){}
+  try{if(typeof renderSuggestions==='function')renderSuggestions();}catch(e){}
+  try{if(typeof renderSuggestionFilters==='function')renderSuggestionFilters();}catch(e){}
+  try{if(typeof renderContentEditor==='function')renderContentEditor();}catch(e){}
+  try{
+    var active=document.querySelector('main section.active')?.id || document.querySelector('#nav button.active')?.dataset.tab || 'roteiro';
+    if(active==='clima' && typeof renderWeatherPage==='function')renderWeatherPage();
+  }catch(e){}
+  try{if(typeof updateRouteCompletion==='function')updateRouteCompletion();}catch(e){}
+}
 function startRealtime(){if(!ensureFirebase()||!firebaseDb||!firebaseAuth?.currentUser)return;if(firestoreUnsub)firestoreUnsub();const uid=firebaseAuth.currentUser.uid;firestoreUnsub=firebaseDb.collection('tripSync').doc(uid).onSnapshot(snap=>{if(!snap.exists||applyingRemote)return;const state=snap.data();if(!state?.payload)return;if(state.payload===lastRemotePayload)return;let localPayload='';try{localPayload=collectSyncState().payload}catch(e){}lastRemotePayload=state.payload;if(state.payload!==localPayload){const applied=applySyncState(state);if(applied){localStorage.setItem(SYNC_META_KEY,JSON.stringify({updatedAt:state.clientUpdatedAt||new Date().toISOString(),payload:state.payload}));setSyncStatus('↻ O outro celular atualizou o guia.','ok');refreshAfterSync();}}},e=>setSyncStatus('⚠️ Realtime indisponível: '+e.message,'warn'))}
 async function initCloudSync(){loadSyncFields();if(!ensureFirebase())return;firebaseAuth.onAuthStateChanged(async user=>{if(user){document.getElementById('syncEmail').value=user.email||'';setSyncStatus('☁️ Conta conectada • sincronização automática ativa.','ok');try{await syncPull();refreshAfterSync();startRealtime()}catch(e){setSyncStatus('⚠️ '+e.message,'err')}}else{setSyncStatus('☁️ Desconectado. O guia continua funcionando offline.','warn');if(firestoreUnsub){firestoreUnsub();firestoreUnsub=null}}})}
 document.getElementById('syncSignUp')?.addEventListener('click',async()=>{if(!ensureFirebase())return;const email=document.getElementById('syncEmail').value.trim(),password=document.getElementById('syncPassword').value;if(!email||password.length<6){setSyncStatus('⚠️ Informe e-mail e uma senha com pelo menos 6 caracteres.','err');return}try{await firebaseAuth.createUserWithEmailAndPassword(email,password);setSyncStatus('✓ Conta criada e conectada.','ok')}catch(e){setSyncStatus('⚠️ '+e.message,'err')}});
@@ -1503,7 +1525,7 @@ document.getElementById('shareBtn')?.addEventListener('click', async()=>{ if(nav
 
 <script id="v50-pwa-stable">
 (async()=>{
-  const APP_VERSION='51.1';
+  const APP_VERSION='51.2';
   try{
     if('serviceWorker' in navigator){
       const reg=await navigator.serviceWorker.register('./sw.js?v='+APP_VERSION,{scope:'./',updateViaCache:'none'});
