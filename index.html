@@ -1428,6 +1428,7 @@ function loadSyncFields(){const c=getSyncConfig();if(!c)return;['apiKey','authDo
 function getActivityDoneMap(){const map={};try{days.forEach((d)=>{(d?.[3]||[]).forEach((x)=>{if(!x)return;const k=activityDoneKey(d[0],x[0],x[1]);map[k]=localStorage.getItem(k)==='1'?'1':'0';});});}catch(e){}return map}
 const ROUTE_SYNC_META_KEY='rio26_route_sync_meta_v1';
 const ROUTE_BACKUP_KEY='rio26_route_backups_v1';
+const ROUTE_MIGRATION_KEY='rio26_route_migration_v1';
 function routeDayKey(d,i){return String((d&&d[0])||('index-'+i)).trim()||('index-'+i)}
 function routeDayHash(d){try{return JSON.stringify(d)}catch(e){return String(d)}}
 function readRouteSyncMeta(){try{const x=JSON.parse(localStorage.getItem(ROUTE_SYNC_META_KEY)||'null');if(x&&x.days&&typeof x.days==='object')return x}catch(e){}return {version:1,days:{}}}
@@ -1435,7 +1436,9 @@ function writeRouteSyncMeta(meta){try{localStorage.setItem(ROUTE_SYNC_META_KEY,J
 function backupLocalRoute(){try{const list=JSON.parse(localStorage.getItem(ROUTE_BACKUP_KEY)||'[]');const snap={savedAt:new Date().toISOString(),days:JSON.parse(JSON.stringify(days))};list.unshift(snap);localStorage.setItem(ROUTE_BACKUP_KEY,JSON.stringify(list.slice(0,5)));}catch(e){}}
 function syncRouteMetaWithLocal(){
  const meta=readRouteSyncMeta(), now=new Date().toISOString(), current={};
- days.forEach((d,i)=>{const key=routeDayKey(d,i),hash=routeDayHash(d);current[key]=true;const old=meta.days[key];if(!old||old.hash!==hash||old.deleted){meta.days[key]={updatedAt:now,hash,deleted:false};}});
+ const existingKeys=Object.keys(meta.days||{});
+ const seedTime=localStorage.getItem('rio26_last_local_change')||now;
+ days.forEach((d,i)=>{const key=routeDayKey(d,i),hash=routeDayHash(d);current[key]=true;const old=meta.days[key];if(!old){meta.days[key]={updatedAt:seedTime,hash,deleted:false};}else if(old.hash!==hash||old.deleted){meta.days[key]={updatedAt:now,hash,deleted:false};}});
  Object.keys(meta.days).forEach(key=>{if(!current[key]&&!meta.days[key].deleted){meta.days[key]={updatedAt:now,hash:meta.days[key].hash||'',deleted:true};}});
  meta.version=1;writeRouteSyncMeta(meta);return meta;
 }
@@ -1443,6 +1446,13 @@ function mergeRouteDays(localDays,remoteDays,remoteMeta,remoteOverall,localOvera
  const local=Array.isArray(localDays)?JSON.parse(JSON.stringify(localDays)):[];
  const remote=Array.isArray(remoteDays)?JSON.parse(JSON.stringify(remoteDays)):[];
  const lm=readRouteSyncMeta(), rm=remoteMeta&&remoteMeta.days&&typeof remoteMeta.days==='object'?remoteMeta.days:{};
+ const migrationDone=localStorage.getItem(ROUTE_MIGRATION_KEY)==='1';
+ // First sync on an existing installation: preserve the route already on this device.
+ // This prevents a cloud snapshot from erasing a route that predates the new protection layer.
+ if(!migrationDone && local.length){
+   localStorage.setItem(ROUTE_MIGRATION_KEY,'1');
+   return local;
+ }
  const localMap={},remoteMap={};
  local.forEach((d,i)=>localMap[routeDayKey(d,i)]={day:d,index:i});
  remote.forEach((d,i)=>remoteMap[routeDayKey(d,i)]={day:d,index:i});
@@ -1459,40 +1469,41 @@ function mergeRouteDays(localDays,remoteDays,remoteMeta,remoteOverall,localOvera
  });
  return out.length?out:local;
 }
+function stripRouteFromTrips(src){
+ try{
+   return (Array.isArray(src)?src:[]).map(t=>{const x=JSON.parse(JSON.stringify(t||{}));delete x.days;return x;});
+ }catch(e){return [];}
+}
 function collectSyncState(){
  syncRouteMetaWithLocal();
- const payload={version:7,routeRevision:33,trips,activeTripId,days,routeSyncMeta:readRouteSyncMeta(),checklist:(()=>{try{return JSON.parse(localStorage.getItem(checklistKey())||'[]')}catch(e){return []}})(),wallet:(()=>{try{return JSON.parse(localStorage.getItem(walletKey())||'{}')}catch(e){return {}}})(),expenses:(()=>{try{return JSON.parse(localStorage.getItem(expensesKey())||'[]')}catch(e){return []}})(),activityDone:getActivityDoneMap(),content:currentContentState()};
- return {version:7,updatedAt:new Date().toISOString(),clientUpdatedAt:new Date().toISOString(),payload:JSON.stringify(payload)}
+ const payload={version:8,routeRevision:34,trips:stripRouteFromTrips(trips),activeTripId,checklist:(()=>{try{return JSON.parse(localStorage.getItem(checklistKey())||'[]')}catch(e){return []}})(),wallet:(()=>{try{return JSON.parse(localStorage.getItem(walletKey())||'{}')}catch(e){return {}}})(),expenses:(()=>{try{return JSON.parse(localStorage.getItem(expensesKey())||'[]')}catch(e){return []}})(),activityDone:getActivityDoneMap(),content:currentContentState()};
+ return {version:8,updatedAt:new Date().toISOString(),clientUpdatedAt:new Date().toISOString(),payload:JSON.stringify(payload)}
 }
-function applySyncState(st){
+function applySyncState(st,options={}){
  if(!st)return false;
- const remoteTime=st.clientUpdatedAt||st.updatedAt||'',localTime=localStorage.getItem('rio26_last_local_change')||'';
+ const remoteTime=st.clientUpdatedAt||st.updatedAt||'';
  let data=st.payload;try{if(typeof data==='string')data=JSON.parse(data)}catch(e){data=null}if(!data)return false;
- const hasRouteMeta=!!(data.routeSyncMeta&&data.routeSyncMeta.days&&typeof data.routeSyncMeta.days==='object');
+ const allowLegacyRoute=options.allowLegacyRoute===true;
  const localDaysBefore=JSON.parse(JSON.stringify(days||[]));
- let routeNeedsPush=false;
- const localNewer=!hasRouteMeta&&remoteTime&&localTime&&new Date(localTime)>new Date(remoteTime);
  backupLocalRoute();
  applyingRemote=true;
  try{
-   if(Array.isArray(data.trips)){trips=data.trips;localStorage.setItem(TRIPS_KEY,JSON.stringify(trips));}
+   if(Array.isArray(data.trips)){
+     const currentDays=days;
+     trips=data.trips.map((t,i)=>{const x=JSON.parse(JSON.stringify(t||{}));if(x.id===activeTripId) x.days=currentDays;return x;});
+     localStorage.setItem(TRIPS_KEY,JSON.stringify(trips));
+   }
    if(data.activeTripId){activeTripId=data.activeTripId;localStorage.setItem(ACTIVE_TRIP_KEY,activeTripId)}
    activeTrip=trips.find(t=>t.id===activeTripId)||activeTrip;
-   if(Array.isArray(data.days)){
-     let merged;
-     if(hasRouteMeta) merged=mergeRouteDays(localDaysBefore,data.days,data.routeSyncMeta,remoteTime,localTime);
-     else merged=localNewer?localDaysBefore:data.days;
-     routeNeedsPush=JSON.stringify(merged)!==JSON.stringify(data.days);
+   if(allowLegacyRoute&&Array.isArray(data.days)){
+     const hasRouteMeta=!!(data.routeSyncMeta&&data.routeSyncMeta.days&&typeof data.routeSyncMeta.days==='object');
+     const localTime=localStorage.getItem('rio26_last_local_change')||'';
+     const localNewer=!hasRouteMeta&&remoteTime&&localTime&&new Date(localTime)>new Date(remoteTime);
+     const merged=hasRouteMeta?mergeRouteDays(localDaysBefore,data.days,data.routeSyncMeta,remoteTime,localTime):(localNewer?localDaysBefore:data.days);
      days=JSON.parse(JSON.stringify(merged));
      if(activeTrip)activeTrip.days=days;
      localStorage.setItem('rio26_days',JSON.stringify(days));
-     if(!hasRouteMeta){
-       const meta={version:1,days:{}};days.forEach((d,i)=>{meta.days[routeDayKey(d,i)]={updatedAt:localNewer?(localTime||remoteTime):remoteTime||new Date().toISOString(),hash:routeDayHash(d),deleted:false}});writeRouteSyncMeta(meta);
-     }else{
-       const meta=readRouteSyncMeta();
-       days.forEach((d,i)=>{const k=routeDayKey(d,i);if(!meta.days[k]){const ri=data.routeSyncMeta.days[k];meta.days[k]=ri||{updatedAt:remoteTime||new Date().toISOString(),hash:routeDayHash(d),deleted:false}}else meta.days[k].hash=routeDayHash(d)});
-       writeRouteSyncMeta(meta);
-     }
+     syncRouteMetaWithLocal();
      if(activeTrip){const idx=trips.findIndex(t=>t.id===activeTripId);if(idx>=0){trips[idx].days=days;localStorage.setItem(TRIPS_KEY,JSON.stringify(trips));}}
    }
    if(data.checklist!==undefined)localStorage.setItem(checklistKey(),JSON.stringify(data.checklist||[]));
@@ -1500,15 +1511,54 @@ function applySyncState(st){
    if(data.expenses!==undefined)localStorage.setItem(expensesKey(),JSON.stringify(data.expenses||[]));
    if(data.activityDone&&typeof data.activityDone==='object'){Object.keys(data.activityDone).forEach(k=>localStorage.setItem(k,data.activityDone[k]==='1'?'1':'0'));}
    if(data.content&&typeof data.content==='object'){localStorage.setItem(contentKey(),JSON.stringify(data.content));applyContentState(data.content);}
-   localStorage.setItem('rio26_last_local_change',remoteTime||new Date().toISOString());
  }finally{applyingRemote=false}
- if(routeNeedsPush)setTimeout(()=>syncPush().catch(()=>{}),300);
  return true
 }
+function routeDocId(key){return 'day-'+String(key).replace(/[^a-zA-Z0-9_-]/g,'_')}
+async function pushRouteDays(){
+ const user=firebaseAuth?.currentUser;if(!user||!firebaseDb)return false;
+ syncRouteMetaWithLocal();
+ const meta=readRouteSyncMeta();
+ const col=firebaseDb.collection('tripSync').doc(user.uid).collection('routeDays');
+ const batch=firebaseDb.batch();
+ const activeKeys={};
+ days.forEach((d,i)=>{const key=routeDayKey(d,i);activeKeys[key]=true;const info=meta.days[key]||{updatedAt:new Date().toISOString(),hash:routeDayHash(d),deleted:false};batch.set(col.doc(routeDocId(key)),{key,day:d,updatedAt:info.updatedAt||new Date().toISOString(),hash:routeDayHash(d),deleted:false,version:1},{merge:true});});
+ Object.keys(meta.days||{}).forEach(key=>{if(meta.days[key]?.deleted&&!activeKeys[key])batch.set(col.doc(routeDocId(key)),{key,updatedAt:meta.days[key].updatedAt||new Date().toISOString(),hash:meta.days[key].hash||'',deleted:true,version:1},{merge:true});});
+ await batch.commit();
+ return true;
+}
+async function pullRouteDays(options={}){
+ const user=firebaseAuth?.currentUser;if(!user||!firebaseDb)return {found:false,changed:false};
+ const snap=await firebaseDb.collection('tripSync').doc(user.uid).collection('routeDays').get();
+ if(snap.empty)return {found:false,changed:false};
+ const remoteDays=[],remoteMeta={version:1,days:{}};
+ snap.forEach(doc=>{const x=doc.data()||{},key=x.key||doc.id.replace(/^day-/,'');remoteMeta.days[key]={updatedAt:x.updatedAt||'',hash:x.hash||routeDayHash(x.day),deleted:!!x.deleted};if(!x.deleted&&Array.isArray(x.day))remoteDays.push(x.day);});
+ const localBefore=JSON.parse(JSON.stringify(days||[]));
+ const merged=mergeRouteDays(localBefore,remoteDays,remoteMeta,'','');
+ const changed=JSON.stringify(merged)!==JSON.stringify(localBefore);
+ if(changed){backupLocalRoute();applyingRemote=true;try{days=JSON.parse(JSON.stringify(merged));if(activeTrip)activeTrip.days=days;localStorage.setItem('rio26_days',JSON.stringify(days));if(activeTrip){const idx=trips.findIndex(t=>t.id===activeTripId);if(idx>=0){trips[idx].days=days;localStorage.setItem(TRIPS_KEY,JSON.stringify(trips));}}syncRouteMetaWithLocal();}finally{applyingRemote=false;}}
+ const localMeta=readRouteSyncMeta();
+ let needPush=false; days.forEach((d,i)=>{const k=routeDayKey(d,i),ri=remoteMeta.days[k],li=localMeta.days[k];if(!ri||(!ri.deleted && li && new Date(li.updatedAt||0)>new Date(ri.updatedAt||0)))needPush=true;});
+ return {found:true,changed,needPush,remoteMeta};
+}
 function ensureFirebase(){const c=getSyncConfig();if(!c?.apiKey||!c?.authDomain||!c?.projectId||!c?.appId){setSyncStatus('⚙️ Configure os dados do Firebase primeiro.','warn');return false}if(!window.firebase){setSyncStatus('⚠️ Módulo Firebase não carregou.','err');return false}if(!firebaseApp){firebaseApp=firebase.initializeApp({apiKey:c.apiKey,authDomain:c.authDomain,projectId:c.projectId,appId:c.appId});firebaseAuth=firebase.auth();firebaseDb=firebase.firestore();firebaseDb.enablePersistence({synchronizeTabs:true}).catch(()=>{});}return true}
-async function syncPush(){if(!ensureFirebase())return;const user=firebaseAuth.currentUser;if(!user){setSyncStatus('🔐 Entre na conta para sincronizar.','warn');return}if(syncInFlight)return;const state=collectSyncState();if(state.payload===lastRemotePayload||state.payload===lastPushedPayload)return;syncInFlight=true;try{state.clientUpdatedAt=state.clientUpdatedAt||new Date().toISOString();await firebaseDb.collection('tripSync').doc(user.uid).set({version:state.version,payload:state.payload,clientUpdatedAt:state.clientUpdatedAt,updatedAt:firebase.firestore.FieldValue.serverTimestamp()},{merge:true});lastPushedPayload=state.payload;lastRemotePayload=state.payload;localStorage.setItem(SYNC_META_KEY,JSON.stringify({updatedAt:state.clientUpdatedAt,payload:state.payload}));setSyncStatus('✓ Alteração enviada para a nuvem.','ok')}finally{syncInFlight=false}}
+async function syncPush(){if(!ensureFirebase())return;const user=firebaseAuth.currentUser;if(!user){setSyncStatus('🔐 Entre na conta para sincronizar.','warn');return}if(syncInFlight)return;syncInFlight=true;try{const state=collectSyncState();state.clientUpdatedAt=state.clientUpdatedAt||new Date().toISOString();await firebaseDb.collection('tripSync').doc(user.uid).set({version:state.version,payload:state.payload,clientUpdatedAt:state.clientUpdatedAt,updatedAt:firebase.firestore.FieldValue.serverTimestamp()},{merge:true});await pushRouteDays();lastPushedPayload=state.payload;lastRemotePayload=state.payload;localStorage.setItem(SYNC_META_KEY,JSON.stringify({updatedAt:state.clientUpdatedAt,payload:state.payload}));setSyncStatus('✓ Guia sincronizado com proteção por dia.','ok')}finally{syncInFlight=false}}
 function scheduleSync(){if(applyingRemote||!getSyncConfig())return;clearTimeout(syncTimer);syncTimer=setTimeout(()=>syncPush().catch(e=>setSyncStatus('⚠️ Não foi possível enviar: '+e.message,'err')),700)}
-async function syncPull(){if(!ensureFirebase())return;const user=firebaseAuth.currentUser;if(!user){setSyncStatus('🔐 Entre na conta para sincronizar.','warn');return false}const snap=await firebaseDb.collection('tripSync').doc(user.uid).get();if(snap.exists){const state=snap.data();if(state.payload){lastRemotePayload=state.payload;lastPushedPayload='';applySyncState(state);localStorage.setItem(SYNC_META_KEY,JSON.stringify({updatedAt:state.clientUpdatedAt||new Date().toISOString(),payload:state.payload}));}setSyncStatus('✓ Dados da nuvem carregados.','ok');return true}else{lastRemotePayload='';await syncPush();return true}}
+async function syncPull(){if(!ensureFirebase())return false;const user=firebaseAuth.currentUser;if(!user){setSyncStatus('🔐 Entre na conta para sincronizar.','warn');return false}const snap=await firebaseDb.collection('tripSync').doc(user.uid).get();
+ if(!snap.exists){await syncPush();return true}
+ const state=snap.data()||{};
+ const routeSnap=await firebaseDb.collection('tripSync').doc(user.uid).collection('routeDays').get();
+ if(routeSnap.empty){
+   // Primeiro contato com a arquitetura nova: NÃO deixa o roteiro antigo da nuvem apagar o roteiro local.
+   applySyncState(state,{allowLegacyRoute:false});
+   syncRouteMetaWithLocal();
+   await syncPush();
+ }else{
+   applySyncState(state,{allowLegacyRoute:false});
+   const rr=await pullRouteDays();
+   if(rr.needPush)await pushRouteDays();
+ }
+ lastRemotePayload=state.payload||'';lastPushedPayload='';localStorage.setItem(SYNC_META_KEY,JSON.stringify({updatedAt:state.clientUpdatedAt||new Date().toISOString(),payload:state.payload||''}));setSyncStatus('✓ Dados sincronizados com proteção por dia.','ok');return true}
 function renderRoute(){const box=document.getElementById('days');if(!box)return;box.innerHTML='';const weatherBox=document.getElementById('weatherDays');if(weatherBox)weatherBox.innerHTML='';const center=activeTrip.coords||rioCenter;days.forEach((d,i)=>{const [date,weekday,title,items]=d;const iso=parseDateBR(date);const el=document.createElement('article');el.className='card day';el.innerHTML=`<div class="day-head"><div><h2>${escapeHtml(date)} • ${escapeHtml(weekday)}</h2><b>${escapeHtml(title)}</b><div class="activity-progress" id="progress-${i}">✓ 0/${items.length} feitas</div></div><span class="badge">${i+1}/${days.length}</span></div><div class="timeline">${items.map((x,j)=>{const activityText=x[1]||'';const key=findAttraction(activityText);const safe=key?key.replace(/'/g,"\\'"):'';const display=key?`<span class="attraction-link" onclick="openAttraction('${safe}','${iso}')">${escapeHtml(activityText)}</span>`:escapeHtml(activityText);const done=localStorage.getItem(activityDoneKey(date,x[0],activityText))==='1';return `<div class="item"><div class="time">${escapeHtml(x[0]||'')}</div><label class="activity-check ${done?'done':''}"><input type="checkbox" data-activity-day="${i}" data-activity-index="${j}" ${done?'checked':''}><span class="activity-text">${display}</span></label></div>`;}).join('')}</div><div id="weather-day-${iso}"></div><div class="btns"><a class="btn" target="_blank" href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(title+' Rio de Janeiro')}">📍 Ver região</a><button class="btn outline" type="button" onclick="openDayEditor(${i})">✏️ Ajustar este dia</button></div>`;box.appendChild(el);const wc=document.getElementById('weather-day-'+iso);if(wc)loadWeather(wc,iso,...center,activeTrip.destination||'Destino');});bindActivityChecks();updateRouteCompletion();}
 function refreshAfterSync(){
   // Re-render all data-driven areas after Firebase applies a remote/local state.
@@ -1532,8 +1582,21 @@ function refreshAfterSync(){
   }catch(e){}
   try{if(typeof updateRouteCompletion==='function')updateRouteCompletion();}catch(e){}
 }
-function startRealtime(){if(!ensureFirebase()||!firebaseDb||!firebaseAuth?.currentUser)return;if(firestoreUnsub)firestoreUnsub();const uid=firebaseAuth.currentUser.uid;firestoreUnsub=firebaseDb.collection('tripSync').doc(uid).onSnapshot(snap=>{if(!snap.exists||applyingRemote)return;const state=snap.data();if(!state?.payload)return;if(state.payload===lastRemotePayload)return;let localPayload='';try{localPayload=collectSyncState().payload}catch(e){}lastRemotePayload=state.payload;if(state.payload!==localPayload){const applied=applySyncState(state);if(applied){localStorage.setItem(SYNC_META_KEY,JSON.stringify({updatedAt:state.clientUpdatedAt||new Date().toISOString(),payload:state.payload}));setSyncStatus('↻ O outro celular atualizou o guia.','ok');refreshAfterSync();}}},e=>setSyncStatus('⚠️ Realtime indisponível: '+e.message,'warn'))}
-async function initCloudSync(){loadSyncFields();if(!ensureFirebase())return;firebaseAuth.onAuthStateChanged(async user=>{if(user){document.getElementById('syncEmail').value=user.email||'';setSyncStatus('☁️ Conta conectada • sincronização automática ativa.','ok');try{await syncPull();refreshAfterSync();startRealtime()}catch(e){setSyncStatus('⚠️ '+e.message,'err')}}else{setSyncStatus('☁️ Desconectado. O guia continua funcionando offline.','warn');if(firestoreUnsub){firestoreUnsub();firestoreUnsub=null}}})}
+let routeRealtimeUnsub=null;
+function startRealtime(){
+ if(!ensureFirebase()||!firebaseDb||!firebaseAuth?.currentUser)return;
+ if(firestoreUnsub)firestoreUnsub(); if(routeRealtimeUnsub)routeRealtimeUnsub();
+ const uid=firebaseAuth.currentUser.uid;
+ firestoreUnsub=firebaseDb.collection('tripSync').doc(uid).onSnapshot(async snap=>{
+   if(!snap.exists||applyingRemote)return;
+   const state=snap.data()||{}; if(state.payload&&state.payload!==lastRemotePayload){lastRemotePayload=state.payload;applySyncState(state,{allowLegacyRoute:false});refreshAfterSync();}
+ },e=>setSyncStatus('⚠️ Realtime indisponível: '+e.message,'warn'));
+ routeRealtimeUnsub=firebaseDb.collection('tripSync').doc(uid).collection('routeDays').onSnapshot(async()=>{
+   if(applyingRemote)return;
+   try{const rr=await pullRouteDays();if(rr.changed){setSyncStatus('↻ Roteiro atualizado por dia, sem substituir os demais.','ok');refreshAfterSync();}if(rr.needPush)await pushRouteDays();}catch(e){setSyncStatus('⚠️ Não foi possível atualizar os dias: '+e.message,'warn')}
+ },e=>setSyncStatus('⚠️ Realtime do roteiro indisponível: '+e.message,'warn'));
+}
+async function initCloudSync(){loadSyncFields();if(!ensureFirebase())return;firebaseAuth.onAuthStateChanged(async user=>{if(user){document.getElementById('syncEmail').value=user.email||'';setSyncStatus('☁️ Conta conectada • sincronização protegida por dia.','ok');try{await syncPull();refreshAfterSync();startRealtime()}catch(e){setSyncStatus('⚠️ '+e.message,'err')}}else{setSyncStatus('☁️ Desconectado. O guia continua funcionando offline.','warn');if(firestoreUnsub){firestoreUnsub();firestoreUnsub=null}if(routeRealtimeUnsub){routeRealtimeUnsub();routeRealtimeUnsub=null}}})}
 document.getElementById('syncSignUp')?.addEventListener('click',async()=>{if(!ensureFirebase())return;const email=document.getElementById('syncEmail').value.trim(),password=document.getElementById('syncPassword').value;if(!email||password.length<6){setSyncStatus('⚠️ Informe e-mail e uma senha com pelo menos 6 caracteres.','err');return}try{await firebaseAuth.createUserWithEmailAndPassword(email,password);setSyncStatus('✓ Conta criada e conectada.','ok')}catch(e){setSyncStatus('⚠️ '+e.message,'err')}});
 document.getElementById('syncSignIn')?.addEventListener('click',async()=>{if(!ensureFirebase())return;const email=document.getElementById('syncEmail').value.trim(),password=document.getElementById('syncPassword').value;try{await firebaseAuth.signInWithEmailAndPassword(email,password)}catch(e){setSyncStatus('⚠️ '+e.message,'err')}});
 document.getElementById('syncForgot')?.addEventListener('click',async()=>{if(!ensureFirebase())return;const email=document.getElementById('syncEmail').value.trim();if(!email){setSyncStatus('Digite seu e-mail primeiro para receber o link de recuperação.','warn');return}try{await firebaseAuth.sendPasswordResetEmail(email);setSyncStatus('✓ Link de recuperação enviado para seu e-mail.','ok')}catch(e){setSyncStatus('⚠️ Não foi possível enviar o link: '+e.message,'err')}});
@@ -1598,7 +1661,7 @@ document.getElementById('shareBtn')?.addEventListener('click', async()=>{ if(nav
 
 <script id="v50-pwa-stable">
 (async()=>{
-  const APP_VERSION='51.5';
+  const APP_VERSION='51.7';
   try{
     if('serviceWorker' in navigator){
       const reg=await navigator.serviceWorker.register('./sw.js?v='+APP_VERSION,{scope:'./',updateViaCache:'none'});
