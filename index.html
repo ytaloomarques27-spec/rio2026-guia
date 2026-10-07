@@ -1522,7 +1522,7 @@ async function pushRouteDays(){
  const col=firebaseDb.collection('tripSync').doc(user.uid).collection('routeDays');
  const batch=firebaseDb.batch();
  const activeKeys={};
- days.forEach((d,i)=>{const key=routeDayKey(d,i);activeKeys[key]=true;const info=meta.days[key]||{updatedAt:new Date().toISOString(),hash:routeDayHash(d),deleted:false};batch.set(col.doc(routeDocId(key)),{key,day:d,updatedAt:info.updatedAt||new Date().toISOString(),hash:routeDayHash(d),deleted:false,version:1},{merge:true});});
+ days.forEach((d,i)=>{const key=routeDayKey(d,i);activeKeys[key]=true;const info=meta.days[key]||{updatedAt:new Date().toISOString(),hash:routeDayHash(d),deleted:false};batch.set(col.doc(routeDocId(key)),{key,day:JSON.stringify(d),updatedAt:info.updatedAt||new Date().toISOString(),hash:routeDayHash(d),deleted:false,version:1},{merge:true});});
  Object.keys(meta.days||{}).forEach(key=>{if(meta.days[key]?.deleted&&!activeKeys[key])batch.set(col.doc(routeDocId(key)),{key,updatedAt:meta.days[key].updatedAt||new Date().toISOString(),hash:meta.days[key].hash||'',deleted:true,version:1},{merge:true});});
  await batch.commit();
  return true;
@@ -1532,7 +1532,7 @@ async function pullRouteDays(options={}){
  const snap=await firebaseDb.collection('tripSync').doc(user.uid).collection('routeDays').get();
  if(snap.empty)return {found:false,changed:false};
  const remoteDays=[],remoteMeta={version:1,days:{}};
- snap.forEach(doc=>{const x=doc.data()||{},key=x.key||doc.id.replace(/^day-/,'');remoteMeta.days[key]={updatedAt:x.updatedAt||'',hash:x.hash||routeDayHash(x.day),deleted:!!x.deleted};if(!x.deleted&&Array.isArray(x.day))remoteDays.push(x.day);});
+ snap.forEach(doc=>{const x=doc.data()||{},key=x.key||doc.id.replace(/^day-/,'');let day=x.day;if(typeof day==='string'){try{day=JSON.parse(day)}catch(e){day=null}}remoteMeta.days[key]={updatedAt:x.updatedAt||'',hash:x.hash||routeDayHash(day),deleted:!!x.deleted};if(!x.deleted&&Array.isArray(day))remoteDays.push(day);});
  const localBefore=JSON.parse(JSON.stringify(days||[]));
  const merged=mergeRouteDays(localBefore,remoteDays,remoteMeta,'','');
  const changed=JSON.stringify(merged)!==JSON.stringify(localBefore);
@@ -1661,7 +1661,7 @@ document.getElementById('shareBtn')?.addEventListener('click', async()=>{ if(nav
 
 <script id="v50-pwa-stable">
 (async()=>{
-  const APP_VERSION='51.7';
+  const APP_VERSION='51.7.1';
   try{
     if('serviceWorker' in navigator){
       const reg=await navigator.serviceWorker.register('./sw.js?v='+APP_VERSION,{scope:'./',updateViaCache:'none'});
